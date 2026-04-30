@@ -1,39 +1,68 @@
-const form = document.getElementById('chat-form');
-const input = document.getElementById('user-input');
-const chatBox = document.getElementById('chat-box');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const typingIndicatorRow = document.getElementById('typingIndicatorRow');
+const initialQuickReplies = document.getElementById('initial-quick-replies');
 
-// Keep track of the entire conversation history
 let conversation = [];
 
-// Helper function to render a message in the chat box
-function appendMessage(role, text) {
-  const msgDiv = document.createElement('div');
-  msgDiv.classList.add('message', role);
-  msgDiv.textContent = text;
-  
-  chatBox.appendChild(msgDiv);
-  chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll to bottom
-  
-  return msgDiv;
+// Helper untuk format jam
+function getFormattedTime() {
+  const now = new Date();
+  return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 }
 
-form.addEventListener('submit', async function (e) {
-  e.preventDefault();
+// Helper untuk render pesan ke chat box dengan style UI baru
+function appendMessage(role, text, isMarkdown = false) {
+  const row = document.createElement('div');
+  row.classList.add('message-row', role === 'user' ? 'user' : 'bot');
 
-  const userMessage = input.value.trim();
-  if (!userMessage) return; // Ignore empty submissions (prevents Gemini API 'oneof data' errors)
+  const bubble = document.createElement('div');
+  bubble.classList.add('message-bubble');
 
-  // 1. Add user message to UI and conversation history
-  appendMessage('user', userMessage);
+  if (isMarkdown) {
+    bubble.innerHTML = marked.parse(text);
+  } else {
+    bubble.textContent = text;
+  }
+  
+  const timeDiv = document.createElement('div');
+  timeDiv.classList.add('message-time');
+  timeDiv.textContent = getFormattedTime();
+  bubble.appendChild(timeDiv);
+
+  row.appendChild(bubble);
+  
+  // Insert sebelum animasi typing indicator
+  chatMessages.insertBefore(row, typingIndicatorRow);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  return bubble;
+}
+
+async function handleSend() {
+  const userMessage = chatInput.value.trim();
+  if (!userMessage) return;
+
+  // Sembunyikan quick replies saat user mulai chat
+  if (initialQuickReplies) initialQuickReplies.style.display = 'none';
+
+  appendMessage('user', userMessage, false);
   conversation.push({ role: 'user', text: userMessage });
-  input.value = ''; // Clear input field
+  
+  // Bersihkan input dan reset ukurannya
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
 
-  // 2. Show temporary "Thinking..." message
-  const thinkingNode = appendMessage('bot', 'Sedang memproses...');
-  thinkingNode.classList.add('thinking');
+  // Munculkan animasi typing
+  typingIndicatorRow.style.display = 'flex';
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  // Disable input & button selama proses loading
+  chatInput.disabled = true;
+  sendBtn.disabled = true;
 
   try {
-    // 3. Send POST request to backend
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,7 +70,6 @@ form.addEventListener('submit', async function (e) {
     });
 
     const data = await response.json();
-    
     if (!response.ok) {
       throw new Error(data.error || 'Failed to get response from server.');
     }
@@ -49,19 +77,40 @@ form.addEventListener('submit', async function (e) {
       throw new Error('Sorry, no response received.');
     }
 
-    // 4. Update the "Thinking..." message with the actual AI response
-    thinkingNode.classList.remove('thinking');
-    thinkingNode.textContent = data.result;
+    typingIndicatorRow.style.display = 'none';
+    appendMessage('bot', data.result, true);
     conversation.push({ role: 'model', text: data.result });
 
   } catch (error) {
     console.error('Chat error:', error);
-    
-    // 5. Handle errors visually
-    thinkingNode.classList.remove('thinking');
-    thinkingNode.textContent = error.message || 'Failed to get response from server.';
-    
-    // Remove the failed user prompt from state so they can try again smoothly
+    typingIndicatorRow.style.display = 'none';
+    appendMessage('bot', error.message || 'Failed to get response from server.', false);
     conversation.pop();
+  } finally {
+    // Enable kembali input & button
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+// Event Listeners
+sendBtn.addEventListener('click', handleSend);
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    handleSend();
   }
 });
+
+// Event auto-resize tinggi textarea
+chatInput.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = (this.scrollHeight < 100 ? this.scrollHeight : 100) + 'px';
+});
+
+// Fungsi global untuk Quick Reply
+window.sendQuickReply = function(text) {
+  chatInput.value = text;
+  handleSend();
+};
