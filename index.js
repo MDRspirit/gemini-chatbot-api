@@ -9,8 +9,8 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-//  model utama + cadangan
-const MODELS = [        // Cadangan 2: Model tercanggih untuk tugas kompleks/arsitektur
+//  model 
+const MODELS = [        
   "gemini-2.5-flash"               
 ];
 
